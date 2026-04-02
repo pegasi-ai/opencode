@@ -17,11 +17,13 @@ import { lazy } from "@/util/lazy"
 import { errorHandler } from "./middleware"
 import { InstanceRoutes } from "./instance"
 import { initProjectors } from "./projectors"
+import { AivState } from "@/aiv/state"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
 
 initProjectors()
+AivState.subscribe()
 
 export namespace Server {
   const log = Log.create({ service: "server" })
@@ -29,7 +31,7 @@ export namespace Server {
   const zipped = compress()
 
   const skipCompress = (path: string, method: string) => {
-    if (path === "/event" || path === "/global/event" || path === "/global/sync-event") return true
+    if (path === "/event" || path === "/global/event" || path === "/global/sync-event" || path === "/aiv/event") return true
     if (method === "POST" && /\/session\/[^/]+\/(message|prompt_async)$/.test(path)) return true
     return false
   }
