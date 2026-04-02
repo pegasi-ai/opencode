@@ -3,7 +3,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent Intent Visualizer</title>
+<title>Agent 2 — Backend Event Processor</title>
 <style>
   :root {
     --bg: #0a0a0f;
@@ -309,7 +309,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
 
 <div class="header">
   <div class="pulse"></div>
-  <h1>Agent Intent Visualizer</h1>
+  <h1>Agent 2 — Backend Event Processor</h1>
   <div class="status" id="conn-status">Connecting...</div>
 </div>
 
