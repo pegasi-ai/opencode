@@ -2,7 +2,8 @@ import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { AIV } from "@/aiv"
+import { AivSchema } from "@/aiv/schema"
+import { AivState } from "@/aiv/state"
 import { DASHBOARD_HTML } from "@/aiv/dashboard"
 import { SessionID } from "@/session/schema"
 
@@ -13,38 +14,39 @@ export const AIVRoutes = lazy(() =>
       return c.body(DASHBOARD_HTML)
     })
     .get(
-      "/",
+      "/intent",
       describeRoute({
-        summary: "List all AIV states",
-        description: "Get the current AIV work state for all active sessions.",
-        operationId: "aiv.list",
+        summary: "List all active intents",
+        description: "Get the current AIV intent state for all active sessions.",
+        operationId: "aiv.intent.list",
         responses: {
           200: {
-            description: "List of work states",
+            description: "Map of session IDs to their current intent state",
             content: {
               "application/json": {
-                schema: resolver(AIV.WorkState.array()),
+                schema: resolver(z.record(z.string(), AivSchema.Intent)),
               },
             },
           },
         },
       }),
       async (c) => {
-        return c.json(AIV.list())
+        const intents = AivState.list()
+        return c.json(Object.fromEntries(intents))
       },
     )
     .get(
-      "/:sessionID",
+      "/intent/:sessionID",
       describeRoute({
-        summary: "Get AIV state for session",
-        description: "Get the current AIV work state for a specific session.",
-        operationId: "aiv.get",
+        summary: "Get session intent",
+        description: "Get the current AIV intent state for a specific session.",
+        operationId: "aiv.intent.get",
         responses: {
           200: {
-            description: "Work state for the session",
+            description: "Current intent state for the session",
             content: {
               "application/json": {
-                schema: resolver(AIV.WorkState.nullable()),
+                schema: resolver(AivSchema.Intent),
               },
             },
           },
@@ -53,41 +55,31 @@ export const AIVRoutes = lazy(() =>
       validator("param", z.object({ sessionID: SessionID.zod })),
       async (c) => {
         const { sessionID } = c.req.valid("param")
-        const state = AIV.get(sessionID)
-        return c.json(state ?? null)
+        return c.json(AivState.get(sessionID))
       },
     )
-    .post(
-      "/ingest",
+    .delete(
+      "/intent/:sessionID",
       describeRoute({
-        summary: "Manually ingest an event",
-        description: "Manually push an event into the AIV processor for testing or external integration.",
-        operationId: "aiv.ingest",
+        summary: "Clear session intent",
+        description: "Clear the AIV intent state for a specific session.",
+        operationId: "aiv.intent.clear",
         responses: {
           200: {
-            description: "Updated work state",
+            description: "Intent cleared",
             content: {
               "application/json": {
-                schema: resolver(AIV.WorkState),
+                schema: resolver(z.boolean()),
               },
             },
           },
         },
       }),
-      validator(
-        "json",
-        z.object({
-          sessionID: SessionID.zod,
-          text: z.string().optional(),
-          files: z.string().array().optional(),
-          toolName: z.string().optional(),
-          active: z.boolean().optional(),
-        }),
-      ),
+      validator("param", z.object({ sessionID: SessionID.zod })),
       async (c) => {
-        const body = c.req.valid("json")
-        const state = AIV.ingestMessage(body)
-        return c.json(state)
+        const { sessionID } = c.req.valid("param")
+        AivState.clear(sessionID)
+        return c.json(true)
       },
     ),
 )

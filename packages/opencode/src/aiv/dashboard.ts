@@ -385,14 +385,16 @@ function renderCard(state) {
   }).join('');
 
   let directionHtml = '';
-  if (state.direction.previous && state.direction.previous !== state.direction.current) {
-    const pc = WORK_COLORS[state.direction.previous] || WORK_COLORS.unknown;
-    const cc = WORK_COLORS[state.direction.current] || WORK_COLORS.unknown;
+  const changes = state.strategyChanges || [];
+  if (changes.length > 0) {
+    const last = changes[changes.length - 1];
+    const pc = WORK_COLORS[last.from] || WORK_COLORS.unknown;
+    const cc = WORK_COLORS[last.to] || WORK_COLORS.unknown;
     directionHtml = '<div class="direction">' +
-      '<span style="color:' + pc + '">' + state.direction.previous + '</span>' +
+      '<span style="color:' + pc + '">' + last.from + '</span>' +
       '<span class="arrow">&#8594;</span>' +
-      '<span style="color:' + cc + '">' + state.direction.current + '</span>' +
-      ' <span style="margin-left:auto">' + relativeTime(state.direction.changedAt) + '</span>' +
+      '<span style="color:' + cc + '">' + last.to + '</span>' +
+      ' <span style="margin-left:auto">' + relativeTime(last.timestamp) + '</span>' +
       '</div>';
   }
 
@@ -402,7 +404,7 @@ function renderCard(state) {
       '<div class="work-badge"><span class="dot"></span> ' + icon + ' ' + state.workType + '</div>' +
       '<span class="session-id">' + shortId + '</span>' +
     '</div>' +
-    '<div class="intent">' + escapeHtml(state.intent) + '</div>' +
+    '<div class="intent">' + escapeHtml(state.summary || 'Starting...') + '</div>' +
     '<div class="location-map">' + locChips + '</div>' +
     '<div class="scope-section">' +
       '<div class="scope-label">Scope</div>' +
@@ -416,7 +418,7 @@ function renderCard(state) {
     '<div class="card-footer">' +
       '<span class="active-indicator ' + (state.active ? 'on' : 'off') + '"></span>' +
       (state.active ? 'Working' : 'Idle') +
-      '<span style="margin-left:auto">Updated ' + relativeTime(state.time.updated) + '</span>' +
+      '<span style="margin-left:auto">Updated ' + relativeTime(state.timestamp) + '</span>' +
     '</div>' +
   '</div>';
 }
@@ -448,8 +450,11 @@ function connect() {
   es.onmessage = (e) => {
     try {
       const evt = JSON.parse(e.data);
-      if (evt.type === 'aiv.updated') {
-        states.set(evt.properties.sessionID, evt.properties.state);
+      if (evt.type === 'aiv.intent.updated') {
+        states.set(evt.properties.sessionID, evt.properties.intent);
+        renderAll();
+      } else if (evt.type === 'aiv.cleared') {
+        states.delete(evt.properties.sessionID);
         renderAll();
       }
     } catch {}
@@ -463,10 +468,10 @@ function connect() {
   };
 }
 
-// Also fetch initial state
-fetch('/aiv').then(r => r.json()).then(list => {
-  for (const s of list) {
-    states.set(s.sessionID, s);
+// Fetch initial state
+fetch('/aiv/intent').then(r => r.json()).then(map => {
+  for (const [id, intent] of Object.entries(map)) {
+    states.set(id, intent);
   }
   renderAll();
 }).catch(() => {});
