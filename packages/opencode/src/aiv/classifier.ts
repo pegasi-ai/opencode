@@ -1,150 +1,128 @@
 import type { AivSchema } from "./schema"
 
 /**
- * Classifier for AIV work types and locations.
+ * Heuristic classifiers that derive intent metadata from tool calls and file paths.
+ * These run synchronously on every tool/part update to keep the AIV state current.
  *
- * Design decisions per coordination plan:
- * - Word-boundary regex (\b) instead of substring matching
- * - Weighted signals: strong signals (commit-style keywords) beat weak ones (variable names)
- * - Specific patterns before general ones
- * - File path structure, not just extensions (.ts is NOT always frontend)
- * - Tested against actual opencode file paths
+ * Design principles (per coordination plan):
+ * - Use file path structure, not just extensions (.ts is NOT always frontend)
+ * - Use word-boundary regex, not substring matching
+ * - Check more specific patterns before general ones
+ * - Weight signals — "fix" in a commit message is stronger than "fix" in a variable name
  */
 
-// --- Location classification ---
-
-// Ordered most-specific to least-specific. First match wins.
-const LOCATION_RULES: Array<[RegExp, AivSchema.Location]> = [
+// Ordered most-specific first. First match wins.
+const LOCATION_PATTERNS: Array<[RegExp, AivSchema.Location]> = [
   // Tests — check before other categories since test files live everywhere
-  [/\.(test|spec)\.[tj]sx?$/i, "tests"],
+  [/\.(test|spec)\.\w+$/i, "tests"],
   [/\/__tests__\//i, "tests"],
   [/\/test\//i, "tests"],
 
-  // Database — SQL files and storage layer
-  [/\.sql(\.[tj]s)?$/i, "database"],
+  // Database — specific directory/file patterns
+  [/\.sql$/i, "database"],
   [/\/migration\//i, "database"],
   [/\/storage\//i, "database"],
-  [/\/drizzle/i, "database"],
-  [/drizzle\.config/i, "database"],
+  [/\/drizzle\//i, "database"],
+  [/\bsession\.sql\b/i, "database"],
 
-  // Infrastructure — deploy, CI, containerization
+  // Infrastructure — deployment and build
   [/\/infra\//i, "infrastructure"],
   [/\/deploy\//i, "infrastructure"],
+  [/\bDockerfile\b/i, "infrastructure"],
   [/\/\.github\//i, "infrastructure"],
-  [/Dockerfile/i, "infrastructure"],
-  [/docker-compose/i, "infrastructure"],
   [/\/nix\//i, "infrastructure"],
-  [/flake\.(nix|lock)$/i, "infrastructure"],
-  [/sst\.config/i, "infrastructure"],
-  [/\/containers?\//i, "infrastructure"],
+  [/\bsst\.config/i, "infrastructure"],
+  [/\/containers\//i, "infrastructure"],
 
-  // Config — settings files (before frontend, since config files have .json/.yaml extensions)
-  [/tsconfig.*\.json$/i, "config"],
-  [/package\.json$/i, "config"],
-  [/turbo\.json$/i, "config"],
-  [/\.env(\..+)?$/i, "config"],
+  // Config — specific config files (before general patterns)
+  [/\btsconfig\b/i, "config"],
+  [/\bpackage\.json$/i, "config"],
+  [/\bturbo\.json$/i, "config"],
+  [/\.config\.\w+$/i, "config"],
+  [/\.\benv\b/i, "config"],
   [/\.(ya?ml|toml|ini)$/i, "config"],
-  [/\/config\//i, "config"],
-  [/bunfig/i, "config"],
 
-  // Frontend — UI components, styles, pages
-  [/\.(css|scss|less)$/i, "frontend"],
-  [/\.tsx$/i, "frontend"],
-  [/\.jsx$/i, "frontend"],
+  // API/Server — directory-based, not extension-based
+  [/\/server\/routes?\//i, "api"],
+  [/\/server\/middleware\//i, "api"],
+  [/\/src\/server\//i, "api"],
+  [/\/api\//i, "api"],
+  [/\/routes?\//i, "api"],
+
+  // Frontend — directory patterns are stronger than extensions
   [/\/components?\//i, "frontend"],
   [/\/pages?\//i, "frontend"],
   [/\/views?\//i, "frontend"],
   [/\/layouts?\//i, "frontend"],
-  [/\/app\//i, "frontend"],
-  [/\/web\//i, "frontend"],
-  [/\/ui\//i, "frontend"],
-  [/\/storybook\//i, "frontend"],
-  [/\/cli\/cmd\/tui\//i, "frontend"],
-
-  // API — server routes, middleware, handlers
-  [/\/server\//i, "api"],
-  [/\/routes?\//i, "api"],
-  [/\/api\//i, "api"],
-  [/\/controllers?\//i, "api"],
-  [/\/handlers?\//i, "api"],
-  [/\/middleware\//i, "api"],
+  [/\/packages\/app\//i, "frontend"],
+  [/\/packages\/ui\//i, "frontend"],
+  [/\/packages\/web\//i, "frontend"],
+  [/\.(css|scss|less)$/i, "frontend"],
+  [/\.(jsx|tsx)$/i, "frontend"],
 
   // Service — core business logic
   [/\/services?\//i, "service"],
   [/\/workers?\//i, "service"],
   [/\/jobs?\//i, "service"],
-  [/\/queue\//i, "service"],
-  [/\/lib\//i, "service"],
-  [/\/core\//i, "service"],
-  [/\/util\//i, "service"],
+  [/\/src\/session\//i, "service"],
+  [/\/src\/agent\//i, "service"],
+  [/\/src\/provider\//i, "service"],
+  [/\/src\/bus\//i, "service"],
 ]
 
-// --- Work type classification ---
-
-type WeightedSignal = {
-  pattern: RegExp
-  type: AivSchema.WorkType
-  weight: number
-}
-
-// Higher weight = stronger signal. Score is sum of matched weights per type.
-const WORK_TYPE_SIGNALS: WeightedSignal[] = [
-  // Bug fix — strong signals
+// Work type signals with weights. Higher weight = stronger signal.
+const WORK_TYPE_SIGNALS: Array<{ pattern: RegExp; type: AivSchema.WorkType; weight: number }> = [
+  // Bug fix
   { pattern: /\bfix(es|ed|ing)?\b/i, type: "bug-fix", weight: 3 },
   { pattern: /\bbug\b/i, type: "bug-fix", weight: 4 },
   { pattern: /\bhotfix\b/i, type: "bug-fix", weight: 5 },
   { pattern: /\bpatch\b/i, type: "bug-fix", weight: 2 },
-  { pattern: /\brepair\b/i, type: "bug-fix", weight: 3 },
-  { pattern: /\bresolve[ds]?\b/i, type: "bug-fix", weight: 2 },
+  { pattern: /\bresolve\b/i, type: "bug-fix", weight: 2 },
   { pattern: /\bbroken\b/i, type: "bug-fix", weight: 3 },
-  { pattern: /\bregression\b/i, type: "bug-fix", weight: 4 },
 
-  // Refactor — strong signals
-  { pattern: /\brefactor(s|ed|ing)?\b/i, type: "refactor", weight: 5 },
+  // Refactor
+  { pattern: /\brefactor(s|ed|ing)?\b/i, type: "refactor", weight: 4 },
   { pattern: /\brestructure\b/i, type: "refactor", weight: 4 },
   { pattern: /\bclean\s?up\b/i, type: "refactor", weight: 3 },
-  { pattern: /\bsimplif(y|ies|ied)\b/i, type: "refactor", weight: 3 },
+  { pattern: /\brename(s|d)?\b/i, type: "refactor", weight: 3 },
+  { pattern: /\bsimplify\b/i, type: "refactor", weight: 3 },
   { pattern: /\bextract\b/i, type: "refactor", weight: 2 },
-  { pattern: /\brename[ds]?\b/i, type: "refactor", weight: 3 },
-  { pattern: /\breorganize\b/i, type: "refactor", weight: 4 },
+  { pattern: /\breorganize\b/i, type: "refactor", weight: 3 },
 
-  // Feature — strong signals
-  { pattern: /\bfeat(ure)?\b/i, type: "feature", weight: 5 },
+  // Feature
+  { pattern: /\bfeat(ure)?\b/i, type: "feature", weight: 4 },
   { pattern: /\bimplement(s|ed|ing)?\b/i, type: "feature", weight: 3 },
-  { pattern: /\bintroduce[ds]?\b/i, type: "feature", weight: 4 },
-  { pattern: /\bbuild(s|ing)?\b/i, type: "feature", weight: 2 },
-  { pattern: /\bcreate[ds]?\b/i, type: "feature", weight: 2 },
+  { pattern: /\bintroduce\b/i, type: "feature", weight: 3 },
+  { pattern: /\bbuild\b/i, type: "feature", weight: 2 },
+  { pattern: /\bcreate\b/i, type: "feature", weight: 2 },
   { pattern: /\badd(s|ed|ing)?\b/i, type: "feature", weight: 2 },
 
   // Test
   { pattern: /\btest(s|ed|ing)?\b/i, type: "test", weight: 3 },
   { pattern: /\bspec\b/i, type: "test", weight: 3 },
-  { pattern: /\bcoverage\b/i, type: "test", weight: 4 },
+  { pattern: /\bcoverage\b/i, type: "test", weight: 3 },
   { pattern: /\bmock(s|ed|ing)?\b/i, type: "test", weight: 2 },
 
   // Dependency
-  { pattern: /\bupgrade[ds]?\b/i, type: "dependency", weight: 3 },
-  { pattern: /\bbump(s|ed|ing)?\b/i, type: "dependency", weight: 4 },
-  { pattern: /\bdependenc(y|ies)\b/i, type: "dependency", weight: 5 },
-  { pattern: /\bpackage\.json\b/i, type: "dependency", weight: 3 },
-  { pattern: /\bnpm\s+(install|update|add)\b/i, type: "dependency", weight: 4 },
-  { pattern: /\bbun\s+add\b/i, type: "dependency", weight: 4 },
+  { pattern: /\bdependenc(y|ies)\b/i, type: "dependency", weight: 4 },
+  { pattern: /\bupgrade\b/i, type: "dependency", weight: 3 },
+  { pattern: /\bbump\b/i, type: "dependency", weight: 4 },
+  { pattern: /\bnpm\s+install\b/i, type: "dependency", weight: 3 },
+  { pattern: /\bbun\s+add\b/i, type: "dependency", weight: 3 },
 
   // Config
-  { pattern: /\bconfig(uration)?\b/i, type: "config", weight: 3 },
+  { pattern: /\bconfigur(e|ation|ing)\b/i, type: "config", weight: 3 },
   { pattern: /\bsetting(s)?\b/i, type: "config", weight: 2 },
-  { pattern: /\benvironment\b/i, type: "config", weight: 2 },
-  { pattern: /\bpipeline\b/i, type: "config", weight: 2 },
+  { pattern: /\benv(ironment)?\b/i, type: "config", weight: 2 },
 
   // Docs
-  { pattern: /\bdoc(s|umentation)?\b/i, type: "docs", weight: 4 },
-  { pattern: /\breadme\b/i, type: "docs", weight: 5 },
-  { pattern: /\bjsdoc\b/i, type: "docs", weight: 4 },
-  { pattern: /\bcomment(s|ed|ing)?\b/i, type: "docs", weight: 2 },
+  { pattern: /\bdoc(s|umentation)?\b/i, type: "docs", weight: 3 },
+  { pattern: /\breadme\b/i, type: "docs", weight: 4 },
+  { pattern: /\bjsdoc\b/i, type: "docs", weight: 3 },
 ]
 
 export function classifyLocation(filePath: string): AivSchema.Location {
-  for (const [pattern, location] of LOCATION_RULES) {
+  for (const [pattern, location] of LOCATION_PATTERNS) {
     if (pattern.test(filePath)) return location
   }
   return "unknown"
@@ -152,10 +130,9 @@ export function classifyLocation(filePath: string): AivSchema.Location {
 
 export function classifyWorkType(text: string): AivSchema.WorkType {
   const scores = new Map<AivSchema.WorkType, number>()
-
-  for (const signal of WORK_TYPE_SIGNALS) {
-    if (signal.pattern.test(text)) {
-      scores.set(signal.type, (scores.get(signal.type) ?? 0) + signal.weight)
+  for (const { pattern, type, weight } of WORK_TYPE_SIGNALS) {
+    if (pattern.test(text)) {
+      scores.set(type, (scores.get(type) ?? 0) + weight)
     }
   }
 
@@ -188,21 +165,23 @@ export function classifyLocationFromPaths(paths: string[]): AivSchema.Location {
   return best
 }
 
-export function classifyAllLocations(paths: string[]): AivSchema.Location[] {
+export function classifyLocations(paths: string[]): AivSchema.Location[] {
   const locations = new Set<AivSchema.Location>()
   for (const p of paths) {
-    const loc = classifyLocation(p)
-    if (loc !== "unknown") locations.add(loc)
+    locations.add(classifyLocation(p))
   }
+  locations.delete("unknown")
   return locations.size > 0 ? [...locations] : ["unknown"]
 }
 
 export function countModules(paths: string[]): number {
   const modules = new Set<string>()
   for (const p of paths) {
-    const parts = p.replace(/^\//, "").split("/")
+    const parts = p.replace(/^\//, "").split("/").filter(Boolean)
     if (parts.length >= 2) {
       modules.add(parts.slice(0, 2).join("/"))
+    } else if (parts.length === 1) {
+      modules.add(parts[0])
     }
   }
   return modules.size

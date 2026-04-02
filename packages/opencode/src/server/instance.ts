@@ -25,7 +25,7 @@ import { ConfigRoutes } from "./routes/config"
 import { ExperimentalRoutes } from "./routes/experimental"
 import { ProviderRoutes } from "./routes/provider"
 import { EventRoutes } from "./routes/event"
-import { AIVRoutes } from "./routes/aiv"
+import { AivRoutes } from "./routes/aiv"
 import { errorHandler } from "./middleware"
 
 const log = Log.create({ service: "server" })
@@ -54,8 +54,8 @@ export const InstanceRoutes = (app?: Hono) =>
     .route("/provider", ProviderRoutes())
     .route("/", FileRoutes())
     .route("/", EventRoutes())
+    .route("/aiv", AivRoutes())
     .route("/mcp", McpRoutes())
-    .route("/aiv", AIVRoutes())
     .route("/tui", TuiRoutes())
     .post(
       "/instance/dispose",

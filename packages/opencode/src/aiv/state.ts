@@ -3,14 +3,17 @@ import { Log } from "@/util/log"
 import { SessionID } from "@/session/schema"
 import { MessageV2 } from "@/session/message-v2"
 import { Session } from "@/session"
-import { SessionStatus } from "@/session/status"
 import { AivSchema } from "./schema"
 import { AivEvent } from "./events"
-import { classifyLocationFromPaths, classifyAllLocations, classifyWorkType, countModules } from "./classifier"
-import { AivPersistence } from "./persistence"
+import { classifyLocationFromPaths, classifyLocations, classifyWorkType, countModules } from "./classifier"
+import { persistEvent, persistState, persistClear } from "./persist"
 
 const log = Log.create({ service: "aiv" })
 
+/**
+ * In-memory state for all active AIV intents, keyed by sessionID.
+ * This is the single source of truth that routes query and SSE streams read from.
+ */
 const intents = new Map<SessionID, AivSchema.Intent>()
 const touchedFiles = new Map<SessionID, Set<string>>()
 
@@ -27,7 +30,7 @@ export namespace AivState {
     intents.delete(sessionID)
     touchedFiles.delete(sessionID)
     Bus.publish(AivEvent.Cleared, { sessionID })
-    AivPersistence.clear(sessionID)
+    persistClear(sessionID)
   }
 
   function getOrCreateFiles(sessionID: SessionID): Set<string> {
@@ -49,6 +52,7 @@ export namespace AivState {
     }
 
     // Detect strategy change
+    let strategyChange: { from: string; to: string } | undefined
     if (prev.workType !== "unknown" && next.workType !== "unknown" && prev.workType !== next.workType) {
       const change: AivSchema.StrategyChange = {
         from: prev.workType,
@@ -56,69 +60,53 @@ export namespace AivState {
         timestamp: Date.now(),
       }
       next.strategyChanges = [...prev.strategyChanges, change]
+      strategyChange = { from: change.from, to: change.to }
       Bus.publish(AivEvent.StrategyChanged, { sessionID, change })
-      AivPersistence.appendEvent({
-        sessionID,
-        type: "aiv.strategy.changed",
-        previousWorkType: change.from,
-        newWorkType: change.to,
-      })
+      persistEvent("aiv.strategy.changed", sessionID, next, strategyChange)
     }
 
     // Detect scope change
     if (prev.scope.files !== next.scope.files || prev.scope.modules !== next.scope.modules) {
       Bus.publish(AivEvent.ScopeChanged, { sessionID, scope: next.scope })
+      persistEvent("aiv.scope.changed", sessionID, next)
     }
 
     intents.set(sessionID, next)
     Bus.publish(AivEvent.IntentUpdated, { sessionID, intent: next })
 
-    // Persist to database
-    AivPersistence.appendEvent({
-      sessionID,
-      type: "aiv.intent.updated",
-      summary: next.summary || undefined,
-      workType: next.workType,
-      location: next.location,
-      scopeFiles: next.scope.files,
-      scopeModules: next.scope.modules,
-    })
-    AivPersistence.upsertState({
-      sessionID,
-      summary: next.summary || undefined,
-      workType: next.workType,
-      location: next.location,
-      scopeFiles: next.scope.files,
-      scopeModules: next.scope.modules,
-      strategyChanges: next.strategyChanges,
-    })
+    // Persist to database (no-op if persistence adapter isn't registered)
+    persistEvent("aiv.intent.updated", sessionID, next, strategyChange)
+    persistState(sessionID, next)
   }
 
+  /**
+   * Process a tool part update to derive intent signals.
+   */
   function handleToolPart(sessionID: SessionID, part: MessageV2.ToolPart) {
     const files = getOrCreateFiles(sessionID)
 
     // Extract file paths from tool input across all states
     const input = "input" in part.state ? part.state.input : {}
     if (input) {
-      const filePath = input.file_path ?? input.path ?? input.filename
-      if (typeof filePath === "string") files.add(filePath)
-
-      const filePaths = input.files ?? input.paths
-      if (Array.isArray(filePaths)) {
-        for (const f of filePaths) {
-          if (typeof f === "string") files.add(f)
+      for (const [key, value] of Object.entries(input)) {
+        if (typeof value === "string" && isFilePath(value)) {
+          files.add(value)
+        }
+        if (key === "files" && Array.isArray(value)) {
+          for (const f of value) {
+            if (typeof f === "string" && isFilePath(f)) files.add(f)
+          }
         }
       }
     }
 
     const allPaths = [...files]
     const location = classifyLocationFromPaths(allPaths)
-    const locations = classifyAllLocations(allPaths)
+    const locations = classifyLocations(allPaths)
 
-    let workType = classifyWorkType(part.tool)
-    if (workType === "unknown" && input?.description && typeof input.description === "string") {
-      workType = classifyWorkType(input.description)
-    }
+    // Derive work type from tool name + title context
+    const toolText = `${part.tool}: ${"title" in part.state && typeof part.state.title === "string" ? part.state.title : ""}`
+    const workType = classifyWorkType(toolText)
 
     const scope: AivSchema.Scope = {
       files: files.size,
@@ -133,6 +121,9 @@ export namespace AivState {
     })
   }
 
+  /**
+   * Process a text part to extract intent summary and work type signals.
+   */
   function handleTextPart(sessionID: SessionID, text: string) {
     const summary = text.length > 200 ? text.slice(0, 200) + "..." : text
     const workType = classifyWorkType(text)
@@ -142,43 +133,46 @@ export namespace AivState {
     })
   }
 
-  function handlePatchPart(sessionID: SessionID, files: string[]) {
-    const tracked = getOrCreateFiles(sessionID)
-    for (const f of files) tracked.add(f)
+  /**
+   * Process a patch part to update scope from file list.
+   */
+  function handlePatchPart(sessionID: SessionID, patchFiles: string[]) {
+    const files = getOrCreateFiles(sessionID)
+    for (const f of patchFiles) files.add(f)
 
-    const allPaths = [...tracked]
+    const allPaths = [...files]
     updateIntent(sessionID, {
-      summary: `Patching ${files.length} file(s)`,
       location: classifyLocationFromPaths(allPaths),
-      locations: classifyAllLocations(allPaths),
+      locations: classifyLocations(allPaths),
       scope: {
-        files: tracked.size,
+        files: files.size,
         modules: countModules(allPaths),
       },
     })
   }
 
   /**
-   * Initialize bus subscriptions. Returns an unsubscribe function for cleanup.
+   * Initialize subscriptions to the bus to derive AIV state from system events.
+   * Returns an unsubscribe function to tear down all listeners.
    */
   export function subscribe(): () => void {
     log.info("initializing AIV state subscriptions")
     const unsubs: (() => void)[] = []
 
-    // Track part updates — text, tools, patches, step lifecycle
+    // Track part updates — handle text, tool, patch, step-start, step-finish
     unsubs.push(
       Bus.subscribe(MessageV2.Event.PartUpdated, (event) => {
         const { sessionID, part } = event.properties
         try {
           switch (part.type) {
             case "text":
-              handleTextPart(sessionID, part.text)
+              handleTextPart(sessionID, (part as MessageV2.TextPart).text)
               break
             case "tool":
               handleToolPart(sessionID, part as MessageV2.ToolPart)
               break
             case "patch":
-              handlePatchPart(sessionID, part.files)
+              handlePatchPart(sessionID, (part as MessageV2.PatchPart).files)
               break
             case "step-start":
               updateIntent(sessionID, { active: true })
@@ -193,24 +187,14 @@ export namespace AivState {
       }),
     )
 
-    // Track diffs for file scope
+    // Track diffs for scope updates
     unsubs.push(
       Bus.subscribe(Session.Event.Diff, (event) => {
-        const { sessionID, diff } = event.properties
         try {
-          const files = diff.map((d) => d.file)
-          if (files.length > 0) {
-            const tracked = getOrCreateFiles(sessionID)
-            for (const f of files) tracked.add(f)
-            const allPaths = [...tracked]
-            updateIntent(sessionID, {
-              location: classifyLocationFromPaths(allPaths),
-              locations: classifyAllLocations(allPaths),
-              scope: {
-                files: tracked.size,
-                modules: countModules(allPaths),
-              },
-            })
+          const { sessionID, diff } = event.properties
+          const diffFiles = diff.map((d) => d.file)
+          if (diffFiles.length > 0) {
+            handlePatchPart(sessionID, diffFiles)
           }
         } catch (e) {
           log.error("aiv diff handler error", { error: e })
@@ -218,21 +202,7 @@ export namespace AivState {
       }),
     )
 
-    // Track session status changes
-    unsubs.push(
-      Bus.subscribe(SessionStatus.Event.Status, (event) => {
-        const { sessionID, status } = event.properties
-        try {
-          if (status.type === "idle") {
-            updateIntent(sessionID, { active: false })
-          }
-        } catch (e) {
-          log.error("aiv status handler error", { error: e })
-        }
-      }),
-    )
-
-    // Clean up on session deletion
+    // Clear intent when session is deleted
     unsubs.push(
       Bus.subscribe(Session.Event.Deleted, (event) => {
         try {
@@ -247,7 +217,11 @@ export namespace AivState {
 
     return () => {
       for (const unsub of unsubs) unsub()
-      log.info("AIV state subscriptions stopped")
+      log.info("AIV state subscriptions torn down")
     }
   }
+}
+
+function isFilePath(value: string): boolean {
+  return /^[./].*\.\w+$/.test(value) || value.includes("/")
 }
