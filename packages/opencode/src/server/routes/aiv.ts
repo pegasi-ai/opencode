@@ -3,10 +3,15 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { lazy } from "@/util/lazy"
 import { AIV } from "@/aiv"
+import { DASHBOARD_HTML } from "@/aiv/dashboard"
 import { SessionID } from "@/session/schema"
 
 export const AIVRoutes = lazy(() =>
   new Hono()
+    .get("/dashboard", async (c) => {
+      c.header("Content-Type", "text/html; charset=utf-8")
+      return c.body(DASHBOARD_HTML)
+    })
     .get(
       "/",
       describeRoute({
