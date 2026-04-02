@@ -6,13 +6,14 @@ import { Log } from "@/util/log"
 import { Bus } from "@/bus"
 import { SessionID } from "@/session/schema"
 import { AsyncQueue } from "@/util/queue"
-import { AivSchema } from "./schema"
-import { AivEvent } from "./events"
-import { AivState } from "./state"
+import { AivSchema } from "@/aiv/schema"
+import { AivEvent } from "@/aiv/events"
+import { AivState } from "@/aiv/state"
+import { lazy } from "@/util/lazy"
 
 const log = Log.create({ service: "aiv" })
 
-export const AivRoutes = () =>
+export const AivRoutes = lazy(() =>
   new Hono()
     .get(
       "/intent",
@@ -179,4 +180,5 @@ export const AivRoutes = () =>
           }
         })
       },
-    )
+    ),
+)

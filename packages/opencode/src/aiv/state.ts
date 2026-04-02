@@ -75,31 +75,28 @@ export namespace AivState {
    */
   function handleToolPart(sessionID: SessionID, part: MessageV2.ToolPart) {
     const files = getOrCreateFiles(sessionID)
-    const toolName = part.tool
 
-    // Extract file paths from tool input
+    // Extract file paths from tool input across all states
     const input = "input" in part.state ? part.state.input : {}
-    const filePath = input.file_path ?? input.path ?? input.filename
-    if (typeof filePath === "string") {
-      files.add(filePath)
-    }
-
-    // For tools that operate on arrays of files
-    const filePaths = input.files ?? input.paths
-    if (Array.isArray(filePaths)) {
-      for (const f of filePaths) {
-        if (typeof f === "string") files.add(f)
+    if (input) {
+      for (const [key, value] of Object.entries(input)) {
+        if (typeof value === "string" && isFilePath(value)) {
+          files.add(value)
+        }
+        if (key === "files" && Array.isArray(value)) {
+          for (const f of value) {
+            if (typeof f === "string" && isFilePath(f)) files.add(f)
+          }
+        }
       }
     }
 
     const allPaths = [...files]
     const location = classifyLocationFromPaths(allPaths)
 
-    // Derive work type from tool name + context
-    let workType = classifyWorkType(toolName)
-    if (workType === "unknown" && "title" in part.state && typeof part.state.title === "string") {
-      workType = classifyWorkType(part.state.title)
-    }
+    // Derive work type from tool name + title context
+    const toolText = `${part.tool}: ${"title" in part.state && typeof part.state.title === "string" ? part.state.title : ""}`
+    let workType = classifyWorkType(toolText)
 
     const scope: AivSchema.Scope = {
       files: files.size,
@@ -116,105 +113,105 @@ export namespace AivState {
   /**
    * Process a text part to extract intent summary and work type signals.
    */
-  function handleTextPart(sessionID: SessionID, text: string, role: "user" | "assistant") {
-    if (role === "user") {
-      // User messages define the intent summary
-      const summary = text.length > 200 ? text.slice(0, 200) + "..." : text
-      const workType = classifyWorkType(text)
-      updateIntent(sessionID, {
-        summary,
-        ...(workType !== "unknown" ? { workType } : {}),
-      })
-    } else {
-      // Assistant text can refine work type
-      const workType = classifyWorkType(text)
-      if (workType !== "unknown") {
-        const current = intents.get(sessionID)
-        if (current?.workType === "unknown") {
-          updateIntent(sessionID, { workType })
-        }
-      }
-    }
+  function handleTextPart(sessionID: SessionID, text: string) {
+    const summary = text.length > 200 ? text.slice(0, 200) + "..." : text
+    const workType = classifyWorkType(text)
+    updateIntent(sessionID, {
+      summary,
+      ...(workType !== "unknown" ? { workType } : {}),
+    })
+  }
+
+  /**
+   * Process a patch part to update scope from file list.
+   */
+  function handlePatchPart(sessionID: SessionID, patchFiles: string[]) {
+    const files = getOrCreateFiles(sessionID)
+    for (const f of patchFiles) files.add(f)
+
+    const allPaths = [...files]
+    updateIntent(sessionID, {
+      location: classifyLocationFromPaths(allPaths),
+      scope: {
+        files: files.size,
+        modules: countModules(allPaths),
+      },
+    })
   }
 
   /**
    * Initialize subscriptions to the bus to derive AIV state from system events.
+   * Returns an unsubscribe function to tear down all listeners.
    */
-  export function subscribe() {
+  export function subscribe(): () => void {
     log.info("initializing AIV state subscriptions")
+    const unsubs: (() => void)[] = []
 
-    // Track part updates to detect tool calls and text
-    Bus.subscribe(MessageV2.Event.PartUpdated, (event) => {
-      const { sessionID, part } = event.properties
-      if (part.type === "tool") {
-        handleToolPart(sessionID, part as MessageV2.ToolPart)
-      }
-    })
-
-    // Track new messages for user intent text
-    Bus.subscribe(MessageV2.Event.Updated, (event) => {
-      const { sessionID, info } = event.properties
-      if (info.role === "user") {
-        // We'll pick up text from the parts
-      }
-    })
-
-    // Track part deltas for streaming text
-    Bus.subscribe(MessageV2.Event.PartDelta, (event) => {
-      const { sessionID, field, delta } = event.properties
-      if (field === "text" && typeof delta === "string") {
-        // Accumulate — the full text will arrive via PartUpdated
-      }
-    })
-
-    // Clear intent when session goes idle
-    Bus.subscribe(SessionStatus.Event.Status, (event) => {
-      const { sessionID, status } = event.properties
-      if (status.type === "idle") {
-        // Keep the intent around but mark it as completed
-        const current = intents.get(sessionID)
-        if (current) {
-          log.info("session idle, preserving final intent", { sessionID })
+    // Track part updates — handle text, tool, patch, step-start, step-finish
+    unsubs.push(
+      Bus.subscribe(MessageV2.Event.PartUpdated, (event) => {
+        const { sessionID, part } = event.properties
+        try {
+          switch (part.type) {
+            case "text":
+              handleTextPart(sessionID, (part as MessageV2.TextPart).text)
+              break
+            case "tool":
+              handleToolPart(sessionID, part as MessageV2.ToolPart)
+              break
+            case "patch":
+              handlePatchPart(sessionID, (part as MessageV2.PatchPart).files)
+              break
+            case "step-start":
+              // Mark session as actively working
+              updateIntent(sessionID, {})
+              break
+            case "step-finish":
+              // Step completed — keep state, timestamp updates naturally
+              updateIntent(sessionID, {})
+              break
+          }
+        } catch (e) {
+          log.error("aiv part handler error", { error: e, partType: part.type })
         }
-      }
-    })
+      }),
+    )
+
+    // Track diffs for scope updates
+    unsubs.push(
+      Bus.subscribe(Session.Event.Diff, (event) => {
+        try {
+          const { sessionID, diff } = event.properties
+          const diffFiles = diff.map((d) => d.file)
+          if (diffFiles.length > 0) {
+            handlePatchPart(sessionID, diffFiles)
+          }
+        } catch (e) {
+          log.error("aiv diff handler error", { error: e })
+        }
+      }),
+    )
 
     // Clear intent when session is deleted
-    Bus.subscribe(Session.Event.Deleted, (event) => {
-      clear(event.properties.sessionID)
-    })
-
-    // Handle file edit events for scope tracking
-    const fileEditedEvent = BusEventLookup("file.edited")
-    if (fileEditedEvent) {
-      Bus.subscribe(fileEditedEvent, (event: any) => {
-        const sessionID = event.properties.sessionID as SessionID | undefined
-        const filePath = event.properties.file as string | undefined
-        if (sessionID && filePath) {
-          const files = getOrCreateFiles(sessionID)
-          files.add(filePath)
-          const allPaths = [...files]
-          updateIntent(sessionID, {
-            location: classifyLocationFromPaths(allPaths),
-            scope: {
-              files: files.size,
-              modules: countModules(allPaths),
-            },
-          })
+    unsubs.push(
+      Bus.subscribe(Session.Event.Deleted, (event) => {
+        try {
+          clear(event.properties.sessionID)
+        } catch (e) {
+          log.error("aiv delete handler error", { error: e })
         }
-      })
-    }
+      }),
+    )
 
     log.info("AIV state subscriptions initialized")
+
+    return () => {
+      for (const unsub of unsubs) unsub()
+      log.info("AIV state subscriptions torn down")
+    }
   }
 }
 
-/**
- * Safely look up a bus event by type string.
- * Returns undefined if the event isn't registered (avoids hard coupling).
- */
-function BusEventLookup(_type: string) {
-  // The bus event registry is internal; we rely on typed subscriptions above.
-  // File edit tracking happens via tool part updates instead.
-  return undefined
+function isFilePath(value: string): boolean {
+  return /^[./].*\.\w+$/.test(value) || value.includes("/")
 }
