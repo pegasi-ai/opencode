@@ -8,7 +8,7 @@ import type { AivSchema } from "./schema"
  * - Use file path structure, not just extensions (.ts is NOT always frontend)
  * - Use word-boundary regex, not substring matching
  * - Check more specific patterns before general ones
- * - Weight signals — "fix" in a commit message is stronger than "fix" in a variable name
+ * - Weight signals — "fix" in a commit-like message is stronger than in a variable name
  */
 
 // Ordered most-specific first. First match wins.
@@ -59,6 +59,7 @@ const LOCATION_PATTERNS: Array<[RegExp, AivSchema.Location]> = [
   [/\/packages\/web\//i, "frontend"],
   [/\.(css|scss|less)$/i, "frontend"],
   [/\.(jsx|tsx)$/i, "frontend"],
+  // .ts alone is NOT frontend — it could be backend, service, etc.
 
   // Service — core business logic
   [/\/services?\//i, "service"],
@@ -71,8 +72,9 @@ const LOCATION_PATTERNS: Array<[RegExp, AivSchema.Location]> = [
 ]
 
 // Work type signals with weights. Higher weight = stronger signal.
+// We score all matches and pick the highest-weighted type.
 const WORK_TYPE_SIGNALS: Array<{ pattern: RegExp; type: AivSchema.WorkType; weight: number }> = [
-  // Bug fix
+  // Bug fix — strong signals
   { pattern: /\bfix(es|ed|ing)?\b/i, type: "bug-fix", weight: 3 },
   { pattern: /\bbug\b/i, type: "bug-fix", weight: 4 },
   { pattern: /\bhotfix\b/i, type: "bug-fix", weight: 5 },
