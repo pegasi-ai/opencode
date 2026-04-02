@@ -12,13 +12,13 @@ export const AivEventTable = sqliteTable(
       .$type<SessionID>()
       .notNull()
       .references(() => SessionTable.id, { onDelete: "cascade" }),
-    /** e.g. "intent.changed", "work.started", "work.completed", "strategy.changed" */
+    /** Bus event type: aiv.intent.updated, aiv.strategy.changed, aiv.scope.changed, aiv.cleared */
     type: text().notNull(),
-    /** Current intent description */
-    intent: text(),
-    /** Work type: bug_fix, refactor, feature, test, dependency, config */
+    /** Intent summary text */
+    summary: text(),
+    /** Work type: bug-fix, refactor, feature, test, dependency, config, docs, unknown */
     work_type: text(),
-    /** Location: frontend, api, service, database, infrastructure, tests */
+    /** Location: frontend, api, service, database, infrastructure, tests, config, unknown */
     location: text(),
     /** Number of files affected */
     scope_files: integer(),
@@ -26,8 +26,8 @@ export const AivEventTable = sqliteTable(
     scope_modules: integer(),
     /** Previous work type (for strategy changes) */
     previous_work_type: text(),
-    /** Arbitrary metadata */
-    metadata: text({ mode: "json" }).$type<Record<string, unknown>>(),
+    /** New work type (for strategy changes) */
+    new_work_type: text(),
     ...Timestamps,
   },
   (table) => [
@@ -37,17 +37,17 @@ export const AivEventTable = sqliteTable(
   ],
 )
 
-/** Current work state per session (upserted on each event) */
+/** Materialized current state per session (upserted from in-memory state) */
 export const AivStateTable = sqliteTable("aiv_state", {
   session_id: text()
     .$type<SessionID>()
     .primaryKey()
     .references(() => SessionTable.id, { onDelete: "cascade" }),
-  intent: text(),
-  work_type: text(),
-  location: text(),
+  summary: text(),
+  work_type: text().notNull().default("unknown"),
+  location: text().notNull().default("unknown"),
   scope_files: integer().notNull().default(0),
   scope_modules: integer().notNull().default(0),
-  strategy_changes: integer().notNull().default(0),
+  strategy_changes: text({ mode: "json" }).$type<{ from: string; to: string; timestamp: number }[]>(),
   ...Timestamps,
 })
