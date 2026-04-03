@@ -31,7 +31,7 @@ export namespace Server {
   const zipped = compress()
 
   const skipCompress = (path: string, method: string) => {
-    if (path === "/event" || path === "/global/event" || path === "/global/sync-event") return true
+    if (path === "/event" || path === "/global/event" || path === "/global/sync-event" || path === "/aiv/event") return true
     if (method === "POST" && /\/session\/[^/]+\/(message|prompt_async)$/.test(path)) return true
     return false
   }
