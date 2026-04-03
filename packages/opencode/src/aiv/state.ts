@@ -6,6 +6,7 @@ import { Session } from "@/session"
 import { AivSchema } from "./schema"
 import { AivEvent } from "./events"
 import { classifyLocationFromPaths, classifyLocations, classifyWorkType, countModules } from "./classifier"
+import { persistEvent, persistState, persistClear } from "./persist"
 
 const log = Log.create({ service: "aiv" })
 
@@ -25,6 +26,7 @@ export namespace AivState {
     intents.delete(sessionID)
     touchedFiles.delete(sessionID)
     Bus.publish(AivEvent.Cleared, { sessionID })
+    persistClear(sessionID)
   }
 
   function getOrCreateFiles(sessionID: SessionID): Set<string> {
@@ -40,18 +42,25 @@ export namespace AivState {
     const prev = intents.get(sessionID) ?? AivSchema.empty(sessionID)
     const next: AivSchema.Intent = { ...prev, ...partial, sessionID, timestamp: Date.now() }
 
+    let strategyChange: { from: string; to: string } | undefined
     if (prev.workType !== "unknown" && next.workType !== "unknown" && prev.workType !== next.workType) {
       const change: AivSchema.StrategyChange = { from: prev.workType, to: next.workType, timestamp: Date.now() }
       next.strategyChanges = [...prev.strategyChanges, change]
+      strategyChange = { from: change.from, to: change.to }
       Bus.publish(AivEvent.StrategyChanged, { sessionID, change })
+      persistEvent("aiv.strategy.changed", sessionID, next, strategyChange)
     }
 
     if (prev.scope.files !== next.scope.files || prev.scope.modules !== next.scope.modules) {
       Bus.publish(AivEvent.ScopeChanged, { sessionID, scope: next.scope })
+      persistEvent("aiv.scope.changed", sessionID, next)
     }
 
     intents.set(sessionID, next)
     Bus.publish(AivEvent.IntentUpdated, { sessionID, intent: next })
+
+    persistEvent("aiv.intent.updated", sessionID, next, strategyChange)
+    persistState(sessionID, next)
   }
 
   function handleToolPart(sessionID: SessionID, part: MessageV2.ToolPart) {
@@ -68,13 +77,11 @@ export namespace AivState {
       }
     }
     const allPaths = [...files]
-    const location = classifyLocationFromPaths(allPaths)
-    const locations = classifyLocations(allPaths)
     const toolText = `${part.tool}: ${"title" in part.state && typeof part.state.title === "string" ? part.state.title : ""}`
     const workType = classifyWorkType(toolText)
     updateIntent(sessionID, {
-      location,
-      locations,
+      location: classifyLocationFromPaths(allPaths),
+      locations: classifyLocations(allPaths),
       scope: { files: files.size, modules: countModules(allPaths) },
       ...(workType !== "unknown" ? { workType } : {}),
     })
