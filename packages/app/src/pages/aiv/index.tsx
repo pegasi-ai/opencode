@@ -1,3 +1,4 @@
+import "@opencode-ai/ui/styles/aiv.css"
 import { createSignal, onCleanup, Show } from "solid-js"
 import type { AgentState } from "./types"
 import { createMockDataSource } from "./mock-data"

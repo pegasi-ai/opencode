@@ -17,7 +17,7 @@ export function IntentHeader(props: Props) {
         class={`flex items-center gap-2 rounded-full px-3 py-1.5 border ${colors().bg} ${colors().border}`}
       >
         <div
-          class="w-2 h-2 rounded-full animate-pulse"
+          class="w-2 h-2 rounded-full aiv-pulse"
           style={{ "background-color": colors().glow }}
         />
         <span class={`text-sm font-medium ${colors().text}`}>{label()}</span>
