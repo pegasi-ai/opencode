@@ -7,6 +7,7 @@ import { SessionStatus } from "@/session/status"
 import { AivSchema } from "./schema"
 import { AivEvent } from "./events"
 import { classifyLocationFromPaths, classifyAllLocations, classifyWorkType, countModules } from "./classifier"
+import { AivPersistence } from "./persistence"
 
 const log = Log.create({ service: "aiv" })
 
@@ -26,6 +27,7 @@ export namespace AivState {
     intents.delete(sessionID)
     touchedFiles.delete(sessionID)
     Bus.publish(AivEvent.Cleared, { sessionID })
+    AivPersistence.clear(sessionID)
   }
 
   function getOrCreateFiles(sessionID: SessionID): Set<string> {
@@ -55,6 +57,12 @@ export namespace AivState {
       }
       next.strategyChanges = [...prev.strategyChanges, change]
       Bus.publish(AivEvent.StrategyChanged, { sessionID, change })
+      AivPersistence.appendEvent({
+        sessionID,
+        type: "aiv.strategy.changed",
+        previousWorkType: change.from,
+        newWorkType: change.to,
+      })
     }
 
     // Detect scope change
@@ -64,6 +72,26 @@ export namespace AivState {
 
     intents.set(sessionID, next)
     Bus.publish(AivEvent.IntentUpdated, { sessionID, intent: next })
+
+    // Persist to database
+    AivPersistence.appendEvent({
+      sessionID,
+      type: "aiv.intent.updated",
+      summary: next.summary || undefined,
+      workType: next.workType,
+      location: next.location,
+      scopeFiles: next.scope.files,
+      scopeModules: next.scope.modules,
+    })
+    AivPersistence.upsertState({
+      sessionID,
+      summary: next.summary || undefined,
+      workType: next.workType,
+      location: next.location,
+      scopeFiles: next.scope.files,
+      scopeModules: next.scope.modules,
+      strategyChanges: next.strategyChanges,
+    })
   }
 
   function handleToolPart(sessionID: SessionID, part: MessageV2.ToolPart) {
