@@ -3,10 +3,10 @@ import { Log } from "@/util/log"
 import { SessionID } from "@/session/schema"
 import { MessageV2 } from "@/session/message-v2"
 import { Session } from "@/session"
-import { SessionStatus } from "@/session/status"
 import { AivSchema } from "./schema"
 import { AivEvent } from "./events"
 import { classifyLocationFromPaths, classifyWorkType, countModules } from "./classifier"
+import { persistEvent, persistState, persistClear } from "./persist"
 
 const log = Log.create({ service: "aiv" })
 
@@ -30,6 +30,7 @@ export namespace AivState {
     intents.delete(sessionID)
     touchedFiles.delete(sessionID)
     Bus.publish(AivEvent.Cleared, { sessionID })
+    persistClear(sessionID)
   }
 
   function getOrCreateFiles(sessionID: SessionID): Set<string> {
@@ -51,6 +52,7 @@ export namespace AivState {
     }
 
     // Detect strategy change
+    let strategyChange: { from: string; to: string } | undefined
     if (prev.workType !== "unknown" && next.workType !== "unknown" && prev.workType !== next.workType) {
       const change: AivSchema.StrategyChange = {
         from: prev.workType,
@@ -58,16 +60,23 @@ export namespace AivState {
         timestamp: Date.now(),
       }
       next.strategyChanges = [...prev.strategyChanges, change]
+      strategyChange = { from: change.from, to: change.to }
       Bus.publish(AivEvent.StrategyChanged, { sessionID, change })
+      persistEvent("aiv.strategy.changed", sessionID, next, strategyChange)
     }
 
     // Detect scope change
     if (prev.scope.files !== next.scope.files || prev.scope.modules !== next.scope.modules) {
       Bus.publish(AivEvent.ScopeChanged, { sessionID, scope: next.scope })
+      persistEvent("aiv.scope.changed", sessionID, next)
     }
 
     intents.set(sessionID, next)
     Bus.publish(AivEvent.IntentUpdated, { sessionID, intent: next })
+
+    // Persist to database (no-op if Agent 3's persistence layer isn't registered)
+    persistEvent("aiv.intent.updated", sessionID, next, strategyChange)
+    persistState(sessionID, next)
   }
 
   /**
