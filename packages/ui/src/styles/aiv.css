@@ -1,0 +1,234 @@
+/* =========================================================================
+ * Agent Intent Visualizer (AIV) — Visual Style System
+ *
+ * CSS custom properties and animations for the AIV visual language.
+ * Import alongside the existing theme.css / colors.css.
+ * ========================================================================= */
+
+/* ---------------------------------------------------------------------------
+ * Work Type Colors
+ *
+ * Each work type gets a primary color plus surface (bg) and text variants.
+ * Surface = low-alpha tint for cards/badges.
+ * Text = contrast-safe foreground on neutral backgrounds.
+ * ------------------------------------------------------------------------- */
+
+:root {
+  /* Bug Fix — Blue (diagnostic, surgical) */
+  --aiv-work-bug-fix: #3b82f6;
+  --aiv-work-bug-fix-surface: oklch(0.72 0.12 250 / 0.12);
+  --aiv-work-bug-fix-text: oklch(0.55 0.14 250);
+
+  /* Refactor — Purple (structural reorganization) */
+  --aiv-work-refactor: #a855f7;
+  --aiv-work-refactor-surface: oklch(0.65 0.16 300 / 0.12);
+  --aiv-work-refactor-text: oklch(0.52 0.18 300);
+
+  /* Feature — Green (additive growth) */
+  --aiv-work-feature: #22c55e;
+  --aiv-work-feature-surface: oklch(0.72 0.14 152 / 0.12);
+  --aiv-work-feature-text: oklch(0.52 0.14 152);
+
+  /* Test — Amber (verification) */
+  --aiv-work-test: #f59e0b;
+  --aiv-work-test-surface: oklch(0.78 0.14 80 / 0.12);
+  --aiv-work-test-text: oklch(0.55 0.14 80);
+
+  /* Dependency — Orange (external / supply-chain) */
+  --aiv-work-dependency-change: #f97316;
+  --aiv-work-dependency-change-surface: oklch(0.72 0.15 55 / 0.12);
+  --aiv-work-dependency-change-text: oklch(0.55 0.16 55);
+
+  /* Config — Pink (settings / environment) */
+  --aiv-work-config-change: #ec4899;
+  --aiv-work-config-change-surface: oklch(0.68 0.18 350 / 0.12);
+  --aiv-work-config-change-text: oklch(0.52 0.18 350);
+}
+
+/* Dark mode overrides */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --aiv-work-bug-fix-surface: oklch(0.45 0.1 250 / 0.2);
+    --aiv-work-bug-fix-text: oklch(0.78 0.12 250);
+
+    --aiv-work-refactor-surface: oklch(0.42 0.14 300 / 0.2);
+    --aiv-work-refactor-text: oklch(0.78 0.14 300);
+
+    --aiv-work-feature-surface: oklch(0.45 0.12 152 / 0.2);
+    --aiv-work-feature-text: oklch(0.78 0.12 152);
+
+    --aiv-work-test-surface: oklch(0.5 0.12 80 / 0.2);
+    --aiv-work-test-text: oklch(0.82 0.12 80);
+
+    --aiv-work-dependency-change-surface: oklch(0.48 0.13 55 / 0.2);
+    --aiv-work-dependency-change-text: oklch(0.8 0.14 55);
+
+    --aiv-work-config-change-surface: oklch(0.44 0.16 350 / 0.2);
+    --aiv-work-config-change-text: oklch(0.78 0.16 350);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Location Colors (muted — work-type color should dominate)
+ * ------------------------------------------------------------------------- */
+
+:root {
+  --aiv-location-frontend: #60a5fa;
+  --aiv-location-api: #34d399;
+  --aiv-location-service: #a78bfa;
+  --aiv-location-database: #fbbf24;
+  --aiv-location-infrastructure: #f87171;
+  --aiv-location-tests: #2dd4bf;
+}
+
+/* ---------------------------------------------------------------------------
+ * Scope Indicators
+ * ------------------------------------------------------------------------- */
+
+:root {
+  --aiv-scope-small-border: 1px;
+  --aiv-scope-medium-border: 2px;
+  --aiv-scope-large-border: 3px;
+
+  --aiv-scope-small-intensity: 0.3;
+  --aiv-scope-medium-intensity: 0.6;
+  --aiv-scope-large-intensity: 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * State Animations
+ * ------------------------------------------------------------------------- */
+
+/* Active — gentle breathing pulse */
+@keyframes aiv-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.02);
+  }
+}
+
+/* Strategy change — attention flash */
+@keyframes aiv-flash {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  25% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 0.5;
+  }
+}
+
+/* Error — horizontal shake */
+@keyframes aiv-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-3px);
+  }
+  40% {
+    transform: translateX(3px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+.aiv-pulse {
+  animation: aiv-pulse 2s ease-in-out infinite;
+}
+
+.aiv-flash {
+  animation: aiv-flash 0.8s ease-in-out;
+}
+
+.aiv-shake {
+  animation: aiv-shake 0.5s ease-in-out;
+}
+
+/* ---------------------------------------------------------------------------
+ * State Styles
+ * ------------------------------------------------------------------------- */
+
+.aiv-state-idle {
+  opacity: 0.4;
+}
+
+.aiv-state-active {
+  opacity: 1;
+}
+
+.aiv-state-complete {
+  opacity: 0.7;
+}
+
+.aiv-state-error {
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * Scope Ring — wraps a work-type badge to indicate change size
+ * ------------------------------------------------------------------------- */
+
+.aiv-scope-ring {
+  border-style: solid;
+  border-radius: var(--radius-full, 9999px);
+}
+
+.aiv-scope-ring[data-scope="small"] {
+  border-width: var(--aiv-scope-small-border);
+}
+
+.aiv-scope-ring[data-scope="medium"] {
+  border-width: var(--aiv-scope-medium-border);
+}
+
+.aiv-scope-ring[data-scope="large"] {
+  border-width: var(--aiv-scope-large-border);
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* ---------------------------------------------------------------------------
+ * Strategy-change transition marker
+ *
+ * When an agent changes strategy, briefly show a crossfade between
+ * the previous work-type color and the new one.
+ * ------------------------------------------------------------------------- */
+
+.aiv-strategy-transition {
+  position: relative;
+  overflow: hidden;
+}
+
+.aiv-strategy-transition::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    var(--aiv-transition-from, transparent),
+    var(--aiv-transition-to, transparent)
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.aiv-strategy-transition[data-transitioning="true"]::after {
+  opacity: 0.5;
+  animation: aiv-flash 0.8s ease-in-out;
+}
