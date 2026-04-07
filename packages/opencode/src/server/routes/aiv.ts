@@ -56,6 +56,7 @@ export const AIVRoutes = lazy(() =>
       validator("param", z.object({ sessionID: SessionID.zod })),
       async (c) => {
         const { sessionID } = c.req.valid("param")
+        if (!AivState.has(sessionID)) return c.json({ error: "Session not found" }, 404)
         return c.json(AivState.get(sessionID))
       },
     )
