@@ -9,6 +9,7 @@ import { AsyncQueue } from "@/util/queue"
 import { AivSchema } from "@/aiv/schema"
 import { AivEvent } from "@/aiv/events"
 import { AivState } from "@/aiv/state"
+import { DASHBOARD_HTML } from "@/aiv/dashboard"
 import { lazy } from "@/util/lazy"
 
 const log = Log.create({ service: "aiv" })
@@ -180,5 +181,8 @@ export const AivRoutes = lazy(() =>
           }
         })
       },
-    ),
+    )
+    .get("/dashboard", async (c) => {
+      return c.html(DASHBOARD_HTML)
+    }),
 )

@@ -3,7 +3,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent 2 — Backend Event Processor</title>
+<title>AIV — Agent Intent Visualizer</title>
 <style>
   :root {
     --bg: #0a0a0f;
