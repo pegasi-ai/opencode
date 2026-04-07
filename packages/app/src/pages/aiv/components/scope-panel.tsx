@@ -1,5 +1,5 @@
 import type { ScopeMetrics, WorkType } from "../types"
-import { WORK_TYPE_SVG_COLORS } from "../types"
+import { getWorkTypeSvgColor } from "../types"
 
 interface Props {
   scope: ScopeMetrics
@@ -7,7 +7,8 @@ interface Props {
 }
 
 function ScopeBar(props: { label: string; value: number; max: number; color: string }) {
-  const pct = () => Math.min(100, (props.value / props.max) * 100)
+  const dynamicMax = () => Math.max(props.max, props.value)
+  const pct = () => Math.min(100, (props.value / dynamicMax()) * 100)
 
   return (
     <div class="flex flex-col gap-1.5">
@@ -30,7 +31,7 @@ function ScopeBar(props: { label: string; value: number; max: number; color: str
 }
 
 export function ScopePanel(props: Props) {
-  const color = () => WORK_TYPE_SVG_COLORS[props.workType]
+  const color = () => getWorkTypeSvgColor(props.workType)
 
   return (
     <div class="flex flex-col gap-4">
@@ -40,7 +41,6 @@ export function ScopePanel(props: Props) {
       <div class="flex flex-col gap-3">
         <ScopeBar label="Files" value={props.scope.files} max={20} color={color()} />
         <ScopeBar label="Modules" value={props.scope.modules} max={10} color={color()} />
-        <ScopeBar label="Services" value={props.scope.services} max={5} color={color()} />
       </div>
     </div>
   )

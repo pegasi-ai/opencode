@@ -1,6 +1,6 @@
 import { For, Show } from "solid-js"
 import type { StrategyChange } from "../types"
-import { WORK_TYPE_COLORS, WORK_TYPE_LABELS, WORK_TYPE_SVG_COLORS } from "../types"
+import { getWorkTypeColors, getWorkTypeLabel } from "../types"
 
 interface Props {
   changes: StrategyChange[]
@@ -30,8 +30,8 @@ export function StrategyTimeline(props: Props) {
         <div class="flex flex-col gap-2">
           <For each={props.changes}>
             {(change) => {
-              const fromColors = () => WORK_TYPE_COLORS[change.from]
-              const toColors = () => WORK_TYPE_COLORS[change.to]
+              const fromColors = () => getWorkTypeColors(change.from)
+              const toColors = () => getWorkTypeColors(change.to)
 
               return (
                 <div class="flex items-center gap-2 text-xs">
@@ -41,7 +41,7 @@ export function StrategyTimeline(props: Props) {
                   <span
                     class={`px-1.5 py-0.5 rounded ${fromColors().bg} ${fromColors().text}`}
                   >
-                    {WORK_TYPE_LABELS[change.from]}
+                    {getWorkTypeLabel(change.from)}
                   </span>
                   <svg width="16" height="8" viewBox="0 0 16 8">
                     <path d="M0 4 H12 L9 1 M12 4 L9 7" stroke="#ffffff40" stroke-width="1.5" fill="none" />
@@ -49,7 +49,7 @@ export function StrategyTimeline(props: Props) {
                   <span
                     class={`px-1.5 py-0.5 rounded ${toColors().bg} ${toColors().text}`}
                   >
-                    {WORK_TYPE_LABELS[change.to]}
+                    {getWorkTypeLabel(change.to)}
                   </span>
                 </div>
               )

@@ -1,6 +1,6 @@
 import { For, createMemo } from "solid-js"
 import type { SystemLocation, WorkType } from "../types"
-import { LOCATION_LABELS, WORK_TYPE_SVG_COLORS } from "../types"
+import { getLocationLabel, getWorkTypeSvgColor } from "../types"
 
 interface Props {
   activeLocations: SystemLocation[]
@@ -23,8 +23,7 @@ const PADDING_X = 40
 const PADDING_Y = 32
 
 export function SystemLayers(props: Props) {
-  const activeColor = () => WORK_TYPE_SVG_COLORS[props.workType]
-
+  const activeColor = () => getWorkTypeSvgColor(props.workType)
   const activeSet = createMemo(() => new Set(props.activeLocations))
 
   const totalHeight = () =>
@@ -36,9 +35,13 @@ export function SystemLayers(props: Props) {
         System Layers
       </span>
       <svg
-        width={LAYER_WIDTH + PADDING_X * 2}
-        height={totalHeight()}
+        width="100%"
+        height="100%"
         viewBox={`0 0 ${LAYER_WIDTH + PADDING_X * 2} ${totalHeight()}`}
+        preserveAspectRatio="xMidYMid meet"
+        style={{ "max-width": `${LAYER_WIDTH + PADDING_X * 2}px`, "max-height": `${totalHeight()}px` }}
+        role="img"
+        aria-label={`System layer diagram showing active locations: ${props.activeLocations.map(getLocationLabel).join(", ") || "none"}`}
       >
         <defs>
           <filter id="glow">
@@ -67,9 +70,7 @@ export function SystemLayers(props: Props) {
                   stroke={isActive() ? activeColor() : "#ffffff15"}
                   stroke-width={isActive() ? 2 : 1}
                   filter={isActive() ? "url(#glow)" : undefined}
-                  style={{
-                    transition: "all 0.6s ease",
-                  }}
+                  style={{ transition: "all 0.6s ease" }}
                 />
                 <text
                   x={PADDING_X + LAYER_WIDTH / 2}
@@ -80,14 +81,11 @@ export function SystemLayers(props: Props) {
                   font-size="14"
                   font-weight={isActive() ? "600" : "400"}
                   font-family="system-ui, sans-serif"
-                  style={{
-                    transition: "all 0.6s ease",
-                  }}
+                  style={{ transition: "all 0.6s ease" }}
                 >
-                  {LOCATION_LABELS[location]}
+                  {getLocationLabel(location)}
                 </text>
 
-                {/* Connection line to next layer */}
                 {i() < ALL_LOCATIONS.length - 1 && (
                   <line
                     x1={PADDING_X + LAYER_WIDTH / 2}

@@ -154,11 +154,20 @@
 }
 
 .aiv-flash {
-  animation: aiv-flash 0.8s ease-in-out;
+  animation: aiv-flash 1.2s ease-in-out;
 }
 
 .aiv-shake {
   animation: aiv-shake 0.5s ease-in-out;
+}
+
+/* Respect user motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .aiv-pulse,
+  .aiv-flash,
+  .aiv-shake {
+    animation: none;
+  }
 }
 
 /* ---------------------------------------------------------------------------

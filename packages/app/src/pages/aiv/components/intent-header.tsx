@@ -1,6 +1,6 @@
 import { Show } from "solid-js"
 import type { AgentIntent, WorkType } from "../types"
-import { WORK_TYPE_COLORS, WORK_TYPE_LABELS } from "../types"
+import { getWorkTypeColors, getWorkTypeLabel } from "../types"
 
 interface Props {
   intent: AgentIntent
@@ -8,8 +8,8 @@ interface Props {
 }
 
 export function IntentHeader(props: Props) {
-  const colors = () => WORK_TYPE_COLORS[props.workType]
-  const label = () => WORK_TYPE_LABELS[props.workType]
+  const colors = () => getWorkTypeColors(props.workType)
+  const label = () => getWorkTypeLabel(props.workType)
 
   return (
     <div class="flex items-center gap-4 px-6 py-4 border-b border-white/10">
