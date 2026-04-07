@@ -112,6 +112,7 @@ export const AIVRoutes = lazy(() =>
           },
         },
       }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
       validator(
         "query",
         z.object({
@@ -119,7 +120,7 @@ export const AIVRoutes = lazy(() =>
         }),
       ),
       async (c) => {
-        const sessionID = c.req.param("sessionID")
+        const { sessionID } = c.req.valid("param")
         const { limit } = c.req.valid("query")
         const events = AivPersistence.timeline(sessionID, limit)
         return c.json(events)

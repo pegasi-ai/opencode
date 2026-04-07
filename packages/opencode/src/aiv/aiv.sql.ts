@@ -31,23 +31,25 @@ export const AivEventTable = sqliteTable(
     ...Timestamps,
   },
   (table) => [
-    index("aiv_event_session_idx").on(table.session_id),
     index("aiv_event_session_time_idx").on(table.session_id, table.time_created),
-    index("aiv_event_type_idx").on(table.type),
   ],
 )
 
 /** Materialized current state per session (upserted from in-memory state) */
-export const AivStateTable = sqliteTable("aiv_state", {
-  session_id: text()
-    .$type<SessionID>()
-    .primaryKey()
-    .references(() => SessionTable.id, { onDelete: "cascade" }),
-  summary: text(),
-  work_type: text().notNull().default("unknown"),
-  location: text().notNull().default("unknown"),
-  scope_files: integer().notNull().default(0),
-  scope_modules: integer().notNull().default(0),
-  strategy_changes: text({ mode: "json" }).$type<{ from: string; to: string; timestamp: number }[]>(),
-  ...Timestamps,
-})
+export const AivStateTable = sqliteTable(
+  "aiv_state",
+  {
+    session_id: text()
+      .$type<SessionID>()
+      .primaryKey()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    summary: text(),
+    work_type: text().notNull().default("unknown"),
+    location: text().notNull().default("unknown"),
+    scope_files: integer().notNull().default(0),
+    scope_modules: integer().notNull().default(0),
+    strategy_changes: text({ mode: "json" }).$type<{ from: string; to: string; timestamp: number }[]>(),
+    ...Timestamps,
+  },
+  (table) => [index("aiv_state_time_updated_idx").on(table.time_updated)],
+)
