@@ -62,38 +62,30 @@ export namespace AivPersistence {
     strategyChanges: AivSchema.StrategyChange[]
   }) {
     try {
-      Database.transaction((tx) => {
-        const existing = tx
-          .select()
-          .from(AivStateTable)
-          .where(eq(AivStateTable.session_id, input.sessionID as SessionID))
-          .get()
-
-        if (existing) {
-          tx.update(AivStateTable)
-            .set({
-              summary: input.summary ?? existing.summary,
+      Database.use((db) => {
+        db.insert(AivStateTable)
+          .values({
+            session_id: input.sessionID as SessionID,
+            summary: input.summary ?? null,
+            work_type: input.workType,
+            location: input.location,
+            scope_files: input.scopeFiles,
+            scope_modules: input.scopeModules,
+            strategy_changes: input.strategyChanges,
+          })
+          .onConflictDoUpdate({
+            target: AivStateTable.session_id,
+            set: {
+              summary: input.summary ?? undefined,
               work_type: input.workType,
               location: input.location,
               scope_files: input.scopeFiles,
               scope_modules: input.scopeModules,
               strategy_changes: input.strategyChanges,
-            })
-            .where(eq(AivStateTable.session_id, input.sessionID as SessionID))
-            .run()
-        } else {
-          tx.insert(AivStateTable)
-            .values({
-              session_id: input.sessionID as SessionID,
-              summary: input.summary ?? null,
-              work_type: input.workType,
-              location: input.location,
-              scope_files: input.scopeFiles,
-              scope_modules: input.scopeModules,
-              strategy_changes: input.strategyChanges,
-            })
-            .run()
-        }
+              time_updated: Date.now(),
+            },
+          })
+          .run()
       })
     } catch (e) {
       log.error("failed to upsert state", { error: e })
