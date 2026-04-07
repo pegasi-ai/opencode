@@ -10,12 +10,17 @@ import { persistEvent, persistState, persistClear } from "./persist"
 
 const log = Log.create({ service: "aiv" })
 
+const MAX_TOUCHED_FILES = 500
+const MAX_STRATEGY_CHANGES = 50
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
+
 const intents = new Map<SessionID, AivSchema.Intent>()
 const touchedFiles = new Map<SessionID, Set<string>>()
 
 export namespace AivState {
-  export function get(sessionID: SessionID): AivSchema.Intent {
-    return intents.get(sessionID) ?? AivSchema.empty(sessionID)
+  export function get(sessionID: SessionID): AivSchema.Intent | undefined {
+    return intents.get(sessionID)
   }
 
   export function list(): Map<SessionID, AivSchema.Intent> {
@@ -45,7 +50,8 @@ export namespace AivState {
     let strategyChange: { from: string; to: string } | undefined
     if (prev.workType !== "unknown" && next.workType !== "unknown" && prev.workType !== next.workType) {
       const change: AivSchema.StrategyChange = { from: prev.workType, to: next.workType, timestamp: Date.now() }
-      next.strategyChanges = [...prev.strategyChanges, change]
+      const changes = [...prev.strategyChanges, change]
+      next.strategyChanges = changes.length > MAX_STRATEGY_CHANGES ? changes.slice(-MAX_STRATEGY_CHANGES) : changes
       strategyChange = { from: change.from, to: change.to }
       Bus.publish(AivEvent.StrategyChanged, { sessionID, change })
       persistEvent("aiv.strategy.changed", sessionID, next, strategyChange)
@@ -63,15 +69,20 @@ export namespace AivState {
     persistState(sessionID, next)
   }
 
+  function addFile(files: Set<string>, path: string) {
+    if (files.size >= MAX_TOUCHED_FILES) return
+    files.add(path)
+  }
+
   function handleToolPart(sessionID: SessionID, part: MessageV2.ToolPart) {
     const files = getOrCreateFiles(sessionID)
     const input = "input" in part.state ? part.state.input : {}
     if (input) {
       for (const [key, value] of Object.entries(input)) {
-        if (typeof value === "string" && isFilePath(value)) files.add(value)
+        if (typeof value === "string" && isFilePath(value)) addFile(files, value)
         if (key === "files" && Array.isArray(value)) {
           for (const f of value) {
-            if (typeof f === "string" && isFilePath(f)) files.add(f)
+            if (typeof f === "string" && isFilePath(f)) addFile(files, f)
           }
         }
       }
@@ -95,7 +106,7 @@ export namespace AivState {
 
   function handlePatchPart(sessionID: SessionID, patchFiles: string[]) {
     const files = getOrCreateFiles(sessionID)
-    for (const f of patchFiles) files.add(f)
+    for (const f of patchFiles) addFile(files, f)
     const allPaths = [...files]
     updateIntent(sessionID, {
       location: classifyLocationFromPaths(allPaths),
@@ -157,8 +168,20 @@ export namespace AivState {
       }),
     )
 
+    const sweepTimer = setInterval(() => {
+      const now = Date.now()
+      for (const [sessionID, intent] of intents) {
+        if (now - intent.timestamp > IDLE_TIMEOUT_MS) {
+          intents.delete(sessionID)
+          touchedFiles.delete(sessionID)
+          log.info("evicted idle AIV session", { sessionID })
+        }
+      }
+    }, SWEEP_INTERVAL_MS)
+
     log.info("AIV state subscriptions initialized")
     return () => {
+      clearInterval(sweepTimer)
       for (const unsub of unsubs) unsub()
       log.info("AIV state subscriptions torn down")
     }
@@ -166,5 +189,9 @@ export namespace AivState {
 }
 
 function isFilePath(value: string): boolean {
-  return /^[./].*\.\w+$/.test(value) || value.includes("/")
+  if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("//")) return false
+  if (value.length < 2 || value.length > 500) return false
+  // Must start with `.`, `/`, or `~` and contain a file extension or directory separator
+  if (!/^[./~]/.test(value)) return false
+  return value.includes("/") || /\.\w+$/.test(value)
 }

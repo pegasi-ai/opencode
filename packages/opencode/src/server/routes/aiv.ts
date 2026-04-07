@@ -10,12 +10,20 @@ import { AivSchema } from "@/aiv/schema"
 import { AivEvent } from "@/aiv/events"
 import { AivState } from "@/aiv/state"
 import { DASHBOARD_HTML } from "@/aiv/dashboard"
+import { Flag } from "@/flag/flag"
 import { lazy } from "@/util/lazy"
 
 const log = Log.create({ service: "aiv" })
 
+const MAX_SSE_CONNECTIONS = 10
+let activeSseConnections = 0
+
 export const AivRoutes = lazy(() =>
   new Hono()
+    .use(async (c, next) => {
+      if (!Flag.OPENCODE_EXPERIMENTAL_AIV) return c.notFound()
+      return next()
+    })
     .get(
       "/intent",
       describeRoute({
@@ -63,7 +71,9 @@ export const AivRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        return c.json(AivState.get(sessionID))
+        const intent = AivState.get(sessionID)
+        if (!intent) return c.json({ error: "Session not found" }, 404)
+        return c.json(intent)
       },
     )
     .delete(
@@ -118,7 +128,11 @@ export const AivRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        log.info("aiv event stream connected")
+        if (activeSseConnections >= MAX_SSE_CONNECTIONS) {
+          return c.json({ error: "Too many SSE connections" }, 429)
+        }
+        activeSseConnections++
+        log.info("aiv event stream connected", { active: activeSseConnections })
         c.header("Cache-Control", "no-cache, no-transform")
         c.header("X-Accel-Buffering", "no")
         c.header("X-Content-Type-Options", "nosniff")
@@ -148,10 +162,11 @@ export const AivRoutes = lazy(() =>
           const stop = () => {
             if (done) return
             done = true
+            activeSseConnections--
             clearInterval(heartbeat)
             unsubs.forEach((fn) => fn())
             q.push(null)
-            log.info("aiv event stream disconnected")
+            log.info("aiv event stream disconnected", { active: activeSseConnections })
           }
 
           const unsubs = [
