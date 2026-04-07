@@ -27,10 +27,10 @@ const LOCATION_RULES: Array<[RegExp, AivSchema.Location]> = [
   [/\/drizzle/i, "database"],
   [/drizzle\.config/i, "database"],
 
-  // Infrastructure — deploy, CI, containerization
+  // Infrastructure — deploy, CI, containerization (before config, since .yml/.yaml overlap)
   [/\/infra\//i, "infrastructure"],
   [/\/deploy\//i, "infrastructure"],
-  [/\/\.github\//i, "infrastructure"],
+  [/\.github\//i, "infrastructure"],
   [/Dockerfile/i, "infrastructure"],
   [/docker-compose/i, "infrastructure"],
   [/\/nix\//i, "infrastructure"],
@@ -69,13 +69,15 @@ const LOCATION_RULES: Array<[RegExp, AivSchema.Location]> = [
   [/\/handlers?\//i, "api"],
   [/\/middleware\//i, "api"],
 
-  // Service — core business logic
+  // Service — core business logic (catch-all for /src/ files not matched above)
   [/\/services?\//i, "service"],
   [/\/workers?\//i, "service"],
   [/\/jobs?\//i, "service"],
   [/\/queue\//i, "service"],
   [/\/lib\//i, "service"],
   [/\/core\//i, "service"],
+  [/\/src\/[^/]+\.[tj]s$/i, "service"],
+  [/\/src\/[^/]+\/[^/]+\.[tj]s$/i, "service"],
   [/\/util\//i, "service"],
 ]
 
@@ -135,6 +137,9 @@ const WORK_TYPE_SIGNALS: WeightedSignal[] = [
   { pattern: /\bsetting(s)?\b/i, type: "config", weight: 2 },
   { pattern: /\benvironment\b/i, type: "config", weight: 2 },
   { pattern: /\bpipeline\b/i, type: "config", weight: 2 },
+  { pattern: /\btsconfig\b/i, type: "config", weight: 4 },
+  { pattern: /\beslint\b/i, type: "config", weight: 3 },
+  { pattern: /\bprettier\b/i, type: "config", weight: 3 },
 
   // Docs
   { pattern: /\bdoc(s|umentation)?\b/i, type: "docs", weight: 4 },
